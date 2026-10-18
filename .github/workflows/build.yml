@@ -12,7 +12,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -25,19 +25,67 @@ jobs:
 
       - name: Generate Android Skeleton
         run: |
-          # توليد ملفات أندرويد الناقصة تلقائياً
-          flutter create . --org com.injaz.tracker --project-name injaz_app
+          # حفظ نسخة احتياطية من ملفاتك
+          cp lib/main.dart /tmp/main.dart.bak || true
+          cp pubspec.yaml /tmp/pubspec.yaml.bak || true
+
+          # إنشاء بيئة أندرويد
+          flutter create --platforms=android --org com.injaz.tracker .
+
+          # استرجاع ملفاتك الأصلية لضمان عدم المساس بها
+          cp /tmp/main.dart.bak lib/main.dart || true
+          cp /tmp/pubspec.yaml.bak pubspec.yaml || true
 
       - name: Configure Android Permissions & Desugaring
         run: |
-          # 1. إضافة صلاحيات الإشعارات إلى AndroidManifest.xml
-          MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
-          sed -i '/<manifest/a \    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.VIBRATE"/>' $MANIFEST_PATH
+          python3 - << 'EOF'
+          import os
 
-          # 2. تفعيل desugaring في build.gradle لحزمة الإشعارات
-          APP_GRADLE="android/app/build.gradle"
-          sed -i '/compileOptions {/a \        coreLibraryDesugaringEnabled true' $APP_GRADLE
-          sed -i '/dependencies {/a \    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"' $APP_GRADLE
+          # 1. إضافة صلاحيات الإشعارات بدقة
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          if os.path.exists(manifest_path):
+              with open(manifest_path, "r", encoding="utf-8") as f:
+                  content = f.read()
+              permissions = """
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+              <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+              <uses-permission android:name="android.permission.VIBRATE"/>
+              """
+              if "POST_NOTIFICATIONS" not in content:
+                  content = content.replace("<application", permissions + "\n    <application", 1)
+                  with open(manifest_path, "w", encoding="utf-8") as f:
+                      f.write(content)
+
+          # 2. تفعيل Desugaring للإشعارات المتوافقة مع أندرويد الحديث والقديم
+          kts_path = "android/app/build.gradle.kts"
+          groovy_path = "android/app/build.gradle"
+
+          if os.path.exists(kts_path):
+              with open(kts_path, "r", encoding="utf-8") as f:
+                  text = f.read()
+              if "isCoreLibraryDesugaringEnabled" not in text:
+                  text = text.replace("compileOptions {", "compileOptions {\n        isCoreLibraryDesugaringEnabled = true")
+                  if "dependencies {" in text:
+                      text = text.replace("dependencies {", 'dependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")')
+                  else:
+                      text += '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n}\n'
+                  with open(kts_path, "w", encoding="utf-8") as f:
+                      f.write(text)
+
+          elif os.path.exists(groovy_path):
+              with open(groovy_path, "r", encoding="utf-8") as f:
+                  text = f.read()
+              if "coreLibraryDesugaringEnabled" not in text:
+                  text = text.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
+                  if "dependencies {" in text:
+                      text = text.replace("dependencies {", 'dependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"')
+                  else:
+                      text += '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"\n}\n'
+                  with open(groovy_path, "w", encoding="utf-8") as f:
+                      f.write(text)
+          EOF
 
       - name: Install Dependencies
         run: flutter pub get
