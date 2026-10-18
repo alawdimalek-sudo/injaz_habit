@@ -9,7 +9,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -22,13 +23,29 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Generate Android Skeleton
+        run: |
+          # توليد ملفات أندرويد الناقصة تلقائياً
+          flutter create . --org com.injaz.tracker --project-name injaz_app
+
+      - name: Configure Android Permissions & Desugaring
+        run: |
+          # 1. إضافة صلاحيات الإشعارات إلى AndroidManifest.xml
+          MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
+          sed -i '/<manifest/a \    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.VIBRATE"/>' $MANIFEST_PATH
+
+          # 2. تفعيل desugaring في build.gradle لحزمة الإشعارات
+          APP_GRADLE="android/app/build.gradle"
+          sed -i '/compileOptions {/a \        coreLibraryDesugaringEnabled true' $APP_GRADLE
+          sed -i '/dependencies {/a \    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"' $APP_GRADLE
+
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Build APK Release
+        run: flutter build apk --release --no-tree-shake-icons
 
-      - name: Upload APK
+      - name: Upload Finished APK
         uses: actions/upload-artifact@v4
         with:
           name: Injaz-Habit-Tracker-APK
