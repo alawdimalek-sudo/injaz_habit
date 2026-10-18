@@ -1,0 +1,20 @@
+name: injaz_app
+description: Habit tracker app
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  shared_preferences: ^2.2.2
+  fl_chart: ^0.68.0
+  flutter_local_notifications: ^17.2.1
+  timezone: ^0.9.4
+
+flutter:
+  uses-material-design: true
