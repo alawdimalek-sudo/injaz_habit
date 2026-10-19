@@ -33,12 +33,12 @@ jobs:
           cp /tmp/main.dart.bak lib/main.dart || true
           cp /tmp/pubspec.yaml.bak pubspec.yaml || true
 
-      - name: Configure Android Settings (MultiDex & Desugaring & Lint)
+      - name: Configure Android Permissions and Desugaring
         run: |
           python3 - << 'EOF'
           import os
 
-          # 1. ضبط الصلاحيات في AndroidManifest.xml
+          # 1. إضافة صلاحيات الإشعارات داخل AndroidManifest
           manifest_path = "android/app/src/main/AndroidManifest.xml"
           if os.path.exists(manifest_path):
               with open(manifest_path, "r", encoding="utf-8") as f:
@@ -55,47 +55,23 @@ jobs:
                   with open(manifest_path, "w", encoding="utf-8") as f:
                       f.write(content)
 
-          # 2. ضبط إعدادات Kotlin DSL build.gradle.kts
+          # 2. تفعيل Desugaring بصيغة Kotlin DSL الصحيحة فقط
           kts_path = "android/app/build.gradle.kts"
-          groovy_path = "android/app/build.gradle"
-
           if os.path.exists(kts_path):
               with open(kts_path, "r", encoding="utf-8") as f:
                   text = f.read()
               if "isCoreLibraryDesugaringEnabled" not in text:
                   text = text.replace("compileOptions {", "compileOptions {\n        isCoreLibraryDesugaringEnabled = true")
-              if "multiDexEnabled" not in text:
-                  text = text.replace("defaultConfig {", "defaultConfig {\n        multiDexEnabled = true")
-              if "lint {" not in text:
-                  text = text.replace("android {", "android {\n    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }")
-              if "dependencies {" in text:
-                  text = text.replace("dependencies {", 'dependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")')
-              else:
+              if "coreLibraryDesugaring" not in text:
                   text += '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n}\n'
               with open(kts_path, "w", encoding="utf-8") as f:
-                  f.write(text)
-
-          elif os.path.exists(groovy_path):
-              with open(groovy_path, "r", encoding="utf-8") as f:
-                  text = f.read()
-              if "coreLibraryDesugaringEnabled" not in text:
-                  text = text.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
-              if "multiDexEnabled" not in text:
-                  text = text.replace("defaultConfig {", "defaultConfig {\n        multiDexEnabled true")
-              if "lintOptions {" not in text:
-                  text = text.replace("android {", "android {\n    lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }")
-              if "dependencies {" in text:
-                  text = text.replace("dependencies {", 'dependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"')
-              else:
-                  text += '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"\n}\n'
-              with open(groovy_path, "w", encoding="utf-8") as f:
                   f.write(text)
           EOF
 
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Build Universal APK Release
+      - name: Build APK Release
         run: flutter build apk --release --no-tree-shake-icons
 
       - name: Upload Finished APK
