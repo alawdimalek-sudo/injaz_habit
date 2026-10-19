@@ -8,34 +8,43 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
-void main() async {
+void main() {
+  // تشغيل المحرك والواجهة فوراً دون أي انتظار
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  await NotificationService.instance.init();
   runApp(const InjazHabitTrackerApp());
 }
 
 // ==========================================
-// خدمة الإشعارات المحلية فائقة الدقة
+// خدمة الإشعارات (تهيئة آمنة في الخلفية)
 // ==========================================
 class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
 
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
+  bool _isInitialized = false;
 
   Future<void> init() async {
-    tz.initializeTimeZones();
-    const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    if (_isInitialized) return;
+    try {
+      tz.initializeTimeZones();
+      const AndroidInitializationSettings androidSettings =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    const InitializationSettings initSettings = InitializationSettings(android: androidSettings);
-    await _plugin.initialize(initSettings);
+      const InitializationSettings initSettings =
+          InitializationSettings(android: androidSettings);
 
-    final androidImplementation = _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-    await androidImplementation?.requestNotificationsPermission();
-    await androidImplementation?.requestExactAlarmsPermission();
+      await _plugin.initialize(initSettings);
+      _isInitialized = true;
+
+      // طلب الصلاحيات بعد أن تكون الشاشة نشطة تماماً
+      final androidImplementation = _plugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      await androidImplementation?.requestNotificationsPermission();
+    } catch (e) {
+      debugPrint('Notification init error: $e');
+    }
   }
 
   Future<void> showInstantTestNotification() async {
@@ -88,7 +97,8 @@ class NotificationService {
       tzScheduled,
       const NotificationDetails(android: androidDetails),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time,
     );
   }
@@ -99,7 +109,7 @@ class NotificationService {
 }
 
 // ==========================================
-// نموذج البيانات الذكي
+// نموذج البيانات
 // ==========================================
 class Habit {
   String id;
@@ -160,7 +170,7 @@ class Habit {
 }
 
 // ==========================================
-// التطبيق الرئيسي والثيم العصري
+// التطبيق الرئيسي
 // ==========================================
 class InjazHabitTrackerApp extends StatefulWidget {
   const InjazHabitTrackerApp({super.key});
@@ -180,7 +190,9 @@ class _InjazHabitTrackerAppState extends State<InjazHabitTrackerApp> {
 
   Future<void> _loadTheme() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() => _isDarkMode = prefs.getBool('injaz_dark') ?? true);
+    if (mounted) {
+      setState(() => _isDarkMode = prefs.getBool('injaz_dark') ?? true);
+    }
   }
 
   void _toggleTheme() async {
@@ -210,14 +222,12 @@ class _InjazHabitTrackerAppState extends State<InjazHabitTrackerApp> {
         brightness: Brightness.light,
         colorSchemeSeed: primaryGreen,
         scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-        fontFamily: 'Roboto',
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
         colorSchemeSeed: primaryGreen,
         scaffoldBackgroundColor: const Color(0xFF090D16),
-        fontFamily: 'Roboto',
       ),
       home: HabitDashboardScreen(
         isDarkMode: _isDarkMode,
@@ -228,7 +238,7 @@ class _InjazHabitTrackerAppState extends State<InjazHabitTrackerApp> {
 }
 
 // ==========================================
-// الشاشة الرئيسية المتطورة
+// الشاشة الرئيسية
 // ==========================================
 class HabitDashboardScreen extends StatefulWidget {
   final bool isDarkMode;
@@ -257,6 +267,11 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
   void initState() {
     super.initState();
     _loadHabits();
+
+    // تشغيل الإشعارات في الخلفية بعد ظهور الواجهة لضمان عدم تأخير الفتح إطلاقاً
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.instance.init();
+    });
   }
 
   Future<void> _loadHabits() async {
@@ -264,10 +279,12 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
     final String? stored = prefs.getString(_storageKey);
     if (stored != null) {
       final List<dynamic> decoded = jsonDecode(stored);
-      setState(() {
-        _habits = decoded.map((item) => Habit.fromJson(item)).toList();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _habits = decoded.map((item) => Habit.fromJson(item)).toList();
+          _isLoading = false;
+        });
+      }
     } else {
       final defaults = [
         Habit(
@@ -298,10 +315,12 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
           reminderMinute: 30,
         ),
       ];
-      setState(() {
-        _habits = defaults;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _habits = defaults;
+          _isLoading = false;
+        });
+      }
       await _saveHabits();
     }
   }
@@ -336,31 +355,28 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('يمكنك نسخ بيانات عاداتك كنص للاحتفاظ بها أو استعادتها في أي وقت:'),
+            const Text('يمكنك نسخ بيانات عاداتك كنص للاحتفاظ بها أو استعادتها:'),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.copy_rounded, size: 18),
-                    label: const Text('نسخ البيانات'),
-                    onPressed: () {
-                      final data = jsonEncode(_habits.map((h) => h.toJson()).toList());
-                      Clipboard.setData(ClipboardData(text: data));
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('تم نسخ بيانات العادات إلى الحافظة بنجاح')),
-                      );
-                    },
-                  ),
-                ),
-              ],
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.copy_rounded, size: 18),
+                label: const Text('نسخ البيانات الحالية'),
+                onPressed: () {
+                  final data = jsonEncode(_habits.map((h) => h.toJson()).toList());
+                  Clipboard.setData(ClipboardData(text: data));
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('تم نسخ بياناتك إلى الحافظة بنجاح')),
+                  );
+                },
+              ),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: textController,
               decoration: const InputDecoration(
-                hintText: 'الصق البيانات هنا للاستعادة',
+                hintText: 'الصق النص هنا للاستعادة',
                 border: OutlineInputBorder(),
               ),
               maxLines: 2,
@@ -384,7 +400,7 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
                 }
               } catch (_) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('البيانات غير صالحة، تأكد من صحة النص')),
+                  const SnackBar(content: Text('البيانات غير صالحة')),
                 );
               }
             },
@@ -486,11 +502,8 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // بطاقة مؤشرات الأداء والتحفيز
             _buildHeroProgressCard(isDark),
             const SizedBox(height: 16),
-
-            // شريط البحث الذكي
             TextField(
               onChanged: (val) => setState(() => _searchQuery = val),
               decoration: InputDecoration(
@@ -506,16 +519,10 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
               ),
             ),
             const SizedBox(height: 12),
-
-            // شريط تصنيفات التصفية
             _buildCategoryFilterRow(),
             const SizedBox(height: 16),
-
-            // الرسم البياني السريع
             _buildChartSection(cardBg),
             const SizedBox(height: 20),
-
-            // قائمة العادات
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -526,7 +533,6 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
               ],
             ),
             const SizedBox(height: 10),
-
             if (_filteredHabits.isEmpty)
               _buildEmptyState()
             else
@@ -592,7 +598,7 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'أفضل سلسلة متتالية: $_bestStreak أيام التزام بدون توقف',
+                  'أفضل سلسلة متتالية: $_bestStreak أيام التزام',
                   style: TextStyle(
                     fontSize: 12,
                     color: isDark ? Colors.white70 : Colors.black87,
@@ -828,7 +834,8 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) => Padding(
           padding: EdgeInsets.only(
@@ -841,98 +848,8 @@ class _HabitDashboardScreenState extends State<HabitDashboardScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('إضافة عادة جديدة 🎯', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text('إضافة عادة جديدة 🎯',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               TextField(
-                controller: titleController,
-                autofocus: true,
-                decoration: InputDecoration(
-                  labelText: 'اسم الهدف أو العادة',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 6,
-                children: categories.map((c) => ChoiceChip(
-                  label: Text(c),
-                  selected: selectedCategory == c,
-                  onSelected: (_) => setModalState(() => selectedCategory = c),
-                )).toList(),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                children: icons.map((ico) => InkWell(
-                  onTap: () => setModalState(() => selectedIcon = ico.codePoint),
-                  borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: selectedIcon == ico.codePoint ? const Color(0xFF10B981).withOpacity(0.2) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: selectedIcon == ico.codePoint ? const Color(0xFF10B981) : Colors.grey.withOpacity(0.3)),
-                    ),
-                    child: Icon(ico, color: selectedIcon == ico.codePoint ? const Color(0xFF10B981) : Colors.grey),
-                  ),
-                )).toList(),
-              ),
-              const SizedBox(height: 14),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('تفعيل المنبه اليومي 🔔'),
-                value: enableReminder,
-                onChanged: (v) => setModalState(() => enableReminder = v),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
-                  onPressed: () async {
-                    if (titleController.text.trim().isEmpty) return;
-                    final habit = Habit(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      title: titleController.text.trim(),
-                      category: selectedCategory,
-                      iconCode: selectedIcon,
-                      days: List.filled(7, false),
-                      reminderHour: enableReminder ? reminderTime.hour : null,
-                      reminderMinute: enableReminder ? reminderTime.minute : null,
-                    );
-                    setState(() => _habits.add(habit));
-                    await _saveHabits();
-                    if (habit.hasReminder) {
-                      await NotificationService.instance.scheduleDailyHabitReminder(habit);
-                    }
-                    if (mounted) Navigator.pop(ctx);
-                  },
-                  child: const Text('حفظ الهدف الآن', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.withOpacity(0.15)),
-      ),
-      child: const Column(
-        children: [
-          Icon(Icons.emoji_events_outlined, size: 48, color: Colors.grey),
-          SizedBox(height: 12),
-          Text('لا توجد عادات مطابقة للبحث', style: TextStyle(fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
-}
+                controller
