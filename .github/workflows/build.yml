@@ -2,7 +2,9 @@ name: Build Injaz APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -25,14 +27,9 @@ jobs:
 
       - name: Generate Android Skeleton
         run: |
-          # حفظ نسخة احتياطية من ملفاتك
           cp lib/main.dart /tmp/main.dart.bak || true
           cp pubspec.yaml /tmp/pubspec.yaml.bak || true
-
-          # إنشاء بيئة أندرويد
           flutter create --platforms=android --org com.injaz.tracker .
-
-          # استرجاع ملفاتك الأصلية لضمان عدم المساس بها
           cp /tmp/main.dart.bak lib/main.dart || true
           cp /tmp/pubspec.yaml.bak pubspec.yaml || true
 
@@ -41,7 +38,6 @@ jobs:
           python3 - << 'EOF'
           import os
 
-          # 1. إضافة صلاحيات الإشعارات بدقة
           manifest_path = "android/app/src/main/AndroidManifest.xml"
           if os.path.exists(manifest_path):
               with open(manifest_path, "r", encoding="utf-8") as f:
@@ -58,7 +54,6 @@ jobs:
                   with open(manifest_path, "w", encoding="utf-8") as f:
                       f.write(content)
 
-          # 2. تفعيل Desugaring للإشعارات المتوافقة مع أندرويد الحديث والقديم
           kts_path = "android/app/build.gradle.kts"
           groovy_path = "android/app/build.gradle"
 
@@ -90,11 +85,11 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-     - name: Build APK Release
+      - name: Build APK Release
         run: flutter build apk --release --split-per-abi --no-tree-shake-icons
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
         with:
           name: Injaz-Habit-Tracker-APK
-          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          path: build/app/outputs/flutter-apk/*.apk
